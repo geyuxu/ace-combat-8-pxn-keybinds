@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>AceCombat8Keybinds</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>1.0.1</Version>
+    <Product>皇牌空战8 · PXN 飞行控制配置</Product>
+    <Description>PXN 2119 Pro 专用皇牌空战8键位编辑工具</Description>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\AceCombat8.Core\AceCombat8.Core.csproj" />
+  </ItemGroup>
+</Project>

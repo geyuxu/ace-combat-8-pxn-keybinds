@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.ini text eol=crlf
+*.png binary
+*.ico binary
+# This fixture deliberately preserves the game's trailing blank lines for roundtrip tests.
+tests/Fixtures/FlightStick.ini whitespace=-blank-at-eof

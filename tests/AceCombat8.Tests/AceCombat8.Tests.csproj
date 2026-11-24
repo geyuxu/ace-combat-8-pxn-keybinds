@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AceCombat8.Core\AceCombat8.Core.csproj" />
+    <None Include="..\Fixtures\FlightStick.ini" Link="FlightStick.ini" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

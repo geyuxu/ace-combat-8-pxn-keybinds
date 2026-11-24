@@ -1,0 +1,13 @@
+**/bin/
+**/obj/
+artifacts/
+*.user
+.vs/
+.idea/
+runtime/
+*.log
+*.bak
+*.tmp
+__pycache__/
+*.pyc
+.DS_Store
