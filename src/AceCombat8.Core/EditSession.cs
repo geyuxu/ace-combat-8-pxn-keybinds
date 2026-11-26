@@ -1,4 +1,5 @@
 using System.Text;
+using static AceCombat8.Core.Lang;
 
 namespace AceCombat8.Core;
 
@@ -15,13 +16,30 @@ public sealed class EditSession
     }
     public void Set(string key, params FlightInput[] inputs)
     {
-        if (!Current.TryGetValue(key, out var binding)) throw new FormatException($"当前配置中没有{PxnDevice.ActionName(key)}。");
+        if (!Current.TryGetValue(key, out var binding))
+            throw new FormatException(T("当前配置中没有此操作。", "This action is missing from the profile.", "この設定に操作がありません。") + $" ({key})");
         Current[key] = binding.WithInputs(inputs);
     }
+    public bool IsBound(string key) => Current.TryGetValue(key, out var binding)
+        && binding.Inputs.Any(input => input.Type != "None");
+
+    public IReadOnlyList<string> UnboundActions => Current.Keys.Where(key => !IsBound(key)).ToList();
+
+    public void AddInput(string key, FlightInput input)
+    {
+        if (!ActionCatalog.CanAssign(key, input) || input.Type == "None")
+            throw new ArgumentException(Lang.T("这个输入不能用于该操作。", "This input cannot be assigned to that action.", "この入力はその操作に割り当てられません。"));
+        Current[key] = Current[key].AddInput(input);
+    }
+
+    public void RemoveInput(string key, int index) => Current[key] = Current[key].RemoveInput(index);
+
+    public string Describe(InputBinding binding) => binding.Describe(Document.Device);
     public IReadOnlyList<BindingChange> Changes => Current.Where(p => !p.Value.SameAs(Document.Bindings[p.Key]))
-        .Select(p => new BindingChange(p.Key, PxnDevice.ActionName(p.Key), Document.Bindings[p.Key].Describe(), p.Value.Describe())).ToList();
+        .Select(p => new BindingChange(p.Key, ActionCatalog.Name(p.Key), Describe(Document.Bindings[p.Key]), Describe(p.Value))).ToList();
     public void ApplyCombatPreset()
     {
+        if (!Document.Device.IsPxn) throw new InvalidOperationException(T("此预设适用于 PXN 2119 Pro。", "This preset is for the PXN 2119 Pro.", "このプリセットは PXN 2119 Pro 用です。"));
         Set("Gun", new FlightInput("Button", 1)); Set("Missile", new FlightInput("Button", 2));
         Set("Target", new FlightInput("Button", 3)); Set("Weapon", new FlightInput("Button", 4));
     }
@@ -37,7 +55,8 @@ public sealed class EditSession
     public static readonly string[] HatKeys = ["HatUp", "HatDown", "HatLeft", "HatRight", "DPadUp", "DPadDown", "DPadLeft", "DPadRight", "CameraPitch", "CameraYaw"];
     public void ApplyHatLayout(bool swapped)
     {
-        if (!HatKeys.All(Current.ContainsKey)) throw new FormatException("配置中缺少帽键项目，无法应用帽键布局。");
+        if (!Document.Device.IsPxn || !HatKeys.All(Current.ContainsKey))
+            throw new FormatException(T("此设备配置不支持 PXN 帽键预设。", "This profile does not support the PXN hat preset.", "この設定では PXN ハット用プリセットを使用できません。"));
         string[] directions = ["Up", "Down", "Left", "Right"];
         string[] types = ["POV_U", "POV_D", "POV_L", "POV_R"];
         for (int i = 0; i < directions.Length; i++)
@@ -55,41 +74,38 @@ public sealed class EditSession
     public void ReverseCamera(string key)
     {
         if (key != "CameraPitch" && key != "CameraYaw") throw new ArgumentException("无效的视角轴。");
-        Set(key, Current[key].Inputs.Select(i => i with { Direction = i.IsReverse ? "Standard" : "Reverse" }).ToArray());
+        Set(key, Current[key].Inputs.Select(i => i with { Direction = i.Direction switch
+        {
+            "Standard" when i.Type != "None" => "Reverse",
+            "Reverse" => "Standard",
+            _ => i.Direction
+        } }).ToArray());
     }
 
     public IReadOnlyList<string> Conflicts()
     {
         var warnings = new List<string>();
-        foreach (var group in new[] { PxnDevice.Combat, PxnDevice.Menu, PxnDevice.Axes })
+        // Matching POV/wingman and menu directions are shared across different contexts.
+        foreach (var group in Current.Keys.GroupBy(ActionCatalog.IsMenu))
         {
-            var pairs = group.Where(a => Current.ContainsKey(a.Key)).SelectMany(a => Current[a.Key].Inputs
-                .Where(i => i.Type != "None").Select(i => (Action: a.Name, i.Type, i.Button, i.Enable, i.Disable)));
+            var pairs = group.SelectMany(key => Current[key].Inputs.Where(i => i.Type != "None")
+                .Select(i => (Action: key, i.Type, i.Button, i.Enable, i.Disable)));
             foreach (var shared in pairs.GroupBy(p => (p.Type, p.Button, p.Enable, p.Disable)).Where(g => g.Select(p => p.Action).Distinct().Count() > 1))
-                warnings.Add(string.Join("／", shared.Select(p => p.Action).Distinct()) + " 共用同一输入，可能同时触发。");
+                warnings.Add(string.Join(" / ", shared.Select(p => p.Action).Distinct().Select(ActionCatalog.Name)) +
+                    T(" 共用同一输入。", " share an input.", " は同じ入力を共有しています。"));
         }
-        var ownedHats = new HashSet<(string, int)>();
-        foreach (string key in HatKeys.Where(Current.ContainsKey))
-            foreach (var i in Current[key].Inputs.Where(i => i.Type != "None")) ownedHats.Add((i.Type, i.Button));
-        foreach (var action in PxnDevice.Combat.Where(a => Current.ContainsKey(a.Key)))
-            if (Current[action.Key].Inputs.Any(i => ownedHats.Contains((i.Type, i.Button))))
-                warnings.Add(action.Name + " 与帽键导航／环顾共用输入。");
         return warnings;
     }
 
     public string ToMarkdown()
     {
-        var text = new StringBuilder($"---\ntitle: PXN 2119 Pro 皇牌空战8当前键位\nupdated: {DateTime.Now:yyyy-MM-dd}\n---\n\n# 皇牌空战8 · PXN 2119 Pro\n\n");
-        foreach (var group in new[] { ("作战按键", PxnDevice.Combat), ("菜单导航", PxnDevice.Menu), ("飞行轴", PxnDevice.Axes) })
-        {
-            text.AppendLine($"## {group.Item1}\n\n| 游戏功能 | 实体输入 |\n| --- | --- |");
-            foreach (var action in group.Item2.Where(a => Current.ContainsKey(a.Key)))
-                text.AppendLine($"| {action.Name} | {Current[action.Key].Describe()} |");
-            text.AppendLine();
-        }
-        text.AppendLine("## 帽键与环顾\n\n| 游戏功能 | 实体输入 |\n| --- | --- |");
-        foreach (string key in HatKeys.Where(Current.ContainsKey)) text.AppendLine($"| {PxnDevice.ActionName(key)} | {Current[key].Describe()} |");
-        text.AppendLine("\nPXN 使用 MODE 0，所有 T 连发开关保持 OFF。保存配置后重新启动游戏。");
+        var text = new StringBuilder($"# ACE COMBAT 8 · {MarkdownCell(Document.Device.Label)}\n\n");
+        text.AppendLine(T("| 游戏功能 | 实体输入 |", "| Action | Physical inputs |", "| 操作 | 物理入力 |"));
+        text.AppendLine("| --- | --- |");
+        foreach (var (key, binding) in Current)
+            text.AppendLine($"| {MarkdownCell(ActionCatalog.Name(key))} | {MarkdownCell(Describe(binding))} |");
+        text.AppendLine(T("\n保存配置后重新启动游戏。", "\nRestart the game after saving.", "\n保存後にゲームを再起動します。"));
         return text.ToString();
     }
+    private static string MarkdownCell(string value) => value.Replace("|", "\\|").Replace("\r", "").Replace("\n", " ");
 }

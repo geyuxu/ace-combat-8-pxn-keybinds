@@ -25,20 +25,26 @@ internal static class DocumentationScreenshots
         window.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
         void Capture(string name) => UiSmoke.Capture(window, output, name, documentation: true);
         Capture("01-overview.png");
-        window.Editors["Gun"].SelectedItem = PxnDevice.ButtonChoices.First(c => c.Input == new FlightInput("Button", 2));
-        window.Editors["Missile"].SelectedItem = PxnDevice.ButtonChoices.First(c => c.Input == new FlightInput("Button", 1));
+        window.VisualHotspots[new FlightInput("Button", 7)].RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+        window.AddActionPicker!.SelectedValue = "Target";
+        window.AddMappingButton!.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
         Capture("02-review-save.png");
         window.SaveCurrent(false);
-        window.Session!.ApplyCombatPreset();
+        var session = window.Session!;
+        session.RemoveInput("Target", session.Current["Target"].Inputs.ToList().FindIndex(i => i.Button == 7));
         window.SaveCurrent(false);
         window.SelectPage(1); Capture("03-menu-story-skip.png");
         window.SelectPage(2); Capture("04-flight-axes.png");
         window.SelectPage(3); Capture("05-hats-camera.png");
         window.SelectPage(4); Capture("06-backup-restore.png");
+        window.LanguagePicker.SelectedIndex = 0;
+        window.SelectPage(0); Capture("07-overview-en.png");
+        window.LanguagePicker.SelectedIndex = 2;
+        window.SelectPage(0); Capture("08-overview-ja.png");
         File.WriteAllText(Path.Combine(output, "screenshots.json"), System.Text.Json.JsonSerializer.Serialize(new
         {
             mode = "application-rendered example configuration",
-            liveConfigurationModified = false, privatePathsIncluded = false, screenshots = 6
+            liveConfigurationModified = false, privatePathsIncluded = false, screenshots = 8
         }));
     }
 }

@@ -1,3 +1,5 @@
+using static AceCombat8.Core.Lang;
+
 namespace AceCombat8.Core;
 
 public sealed record SteamGame(string AppId, string Name, string InstallPath, string Library);
@@ -26,7 +28,7 @@ public static class ConfigDiscovery
                     if (library.Get("path") is { } path && Directory.Exists(path)) libraries.Add(System.IO.Path.GetFullPath(path));
                 foreach (var (key, path) in folders.Values)
                     if (int.TryParse(key, out _) && Directory.Exists(path)) libraries.Add(System.IO.Path.GetFullPath(path));
-            }, notes, "有一个 Steam 库信息无法读取，仍可手动选择配置。");
+            }, notes, T("无法读取一份 Steam 库配置。", "A Steam library file could not be read.", "Steam ライブラリ設定を読み込めませんでした。"));
         }
         var games = new List<SteamGame>();
         foreach (var library in libraries)
@@ -43,9 +45,9 @@ public static class ConfigDiscovery
                         if (state?.Get("name") is not { } name || !IsAceCombat8(name)) return;
                         if (state.Get("installdir") is not { } folder || state.Get("appid") is not { } appId) return;
                         games.Add(new(appId, name, System.IO.Path.Combine(apps, "common", folder), library));
-                    }, notes, "一个 Steam 游戏清单无法读取。");
+                    }, notes, T("无法读取一份 Steam 游戏清单。", "A Steam game manifest could not be read.", "Steam のゲーム情報を読み込めませんでした。"));
                 }
-            }, notes, "有一个 Steam 库无法访问。");
+            }, notes, T("无法访问一处 Steam 库。", "A Steam library could not be accessed.", "Steam ライブラリにアクセスできませんでした。"));
         }
         var candidates = new Dictionary<string, ConfigCandidate>(StringComparer.OrdinalIgnoreCase);
         void Add(string path, string source)
@@ -53,22 +55,23 @@ public static class ConfigDiscovery
             TryRead(() =>
             {
                 if (!File.Exists(path)) return;
-                _ = FlightStickDocument.Load(path); // A candidate must actually contain this user's PXN device.
+                _ = FlightStickDocument.Load(path);
                 string full = System.IO.Path.GetFullPath(path);
                 candidates.TryAdd(full, new(full, source, File.GetLastWriteTime(full)));
-            }, notes, $"未采用无效或不可读的配置：{System.IO.Path.GetFileName(path)}。");
+            }, notes, T("无法读取配置 ", "Could not open configuration ", "設定を開けませんでした ") + System.IO.Path.GetFileName(path));
         }
-        if (!string.IsNullOrWhiteSpace(remembered)) Add(remembered, "上次使用");
+        if (!string.IsNullOrWhiteSpace(remembered)) Add(remembered, T("上次使用", "Last opened", "前回使用"));
         string config = System.IO.Path.Combine(localAppData, "BANDAI NAMCO Entertainment", "ACE COMBAT 8", "Saved", "Config");
-        Add(System.IO.Path.Combine(config, "Windows", "FlightStick.ini"), "Windows 当前用户配置");
-        Add(System.IO.Path.Combine(config, "WindowsNoEditor", "FlightStick.ini"), "Windows 备用配置目录");
+        Add(System.IO.Path.Combine(config, "Windows", "FlightStick.ini"), T("Windows 用户配置", "Windows user profile", "Windows ユーザー設定"));
+        Add(System.IO.Path.Combine(config, "WindowsNoEditor", "FlightStick.ini"), T("备用配置目录", "Alternate config folder", "予備の設定フォルダー"));
+        string steamSource = T("Steam 游戏本地配置", "Steam game folder", "Steam ゲームフォルダー");
         foreach (var game in games)
         {
-            Add(System.IO.Path.Combine(game.InstallPath, "Game", "Saved", "Config", "Windows", "FlightStick.ini"), "Steam 游戏内本地配置");
-            Add(System.IO.Path.Combine(game.InstallPath, "Saved", "Config", "Windows", "FlightStick.ini"), "Steam 游戏内本地配置");
+            Add(System.IO.Path.Combine(game.InstallPath, "Game", "Saved", "Config", "Windows", "FlightStick.ini"), steamSource);
+            Add(System.IO.Path.Combine(game.InstallPath, "Saved", "Config", "Windows", "FlightStick.ini"), steamSource);
         }
-        if (games.Count == 0) notes.Add("Steam 中未找到《皇牌空战8》安装记录；仍会查找当前用户配置，也可手动选择。");
-        if (candidates.Count == 0) notes.Add("尚未找到含 PXN-F19 的 FlightStick.ini。请连接摇杆，启动游戏后退出，再重试或手动选择。");
+        if (games.Count == 0) notes.Add(T("Steam 中未找到《皇牌空战8》。", "ACE COMBAT 8 was not found in Steam.", "Steam に ACE COMBAT 8 が見つかりませんでした。"));
+        if (candidates.Count == 0) notes.Add(Lang.T("尚未找到含摇杆配置的 FlightStick.ini。请连接摇杆，启动游戏后退出，再重试或手动选择。", "No FlightStick.ini with a controller profile was found. Connect the controller, launch and exit the game, then search again or choose a file.", "コントローラー設定のある FlightStick.ini が見つかりません。接続してゲームを起動・終了し、再検索するかファイルを選択してください。"));
         // If several real files exist, the UI asks which one to open instead of guessing from a backup's timestamp.
         return new(games.DistinctBy(g => g.InstallPath, StringComparer.OrdinalIgnoreCase).ToList(), candidates.Values.ToList(), notes.Distinct().ToList());
     }

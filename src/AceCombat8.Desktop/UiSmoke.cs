@@ -28,6 +28,9 @@ internal static class UiSmoke
         window.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
         Check(window.Session!.Changes.Count == 0, "Opening must not change bindings");
         Check(!window.SaveButton.IsEnabled, "Save must be disabled for an unchanged file");
+        CheckPhysicalEditor(window);
+        window.LoadFile(fixture, true);
+        window.SelectPage(5);
         var picker = window.Editors["Gun"];
         picker.ApplyTemplate();
         var toggle = FindChild<ToggleButton>(picker) ?? throw new InvalidOperationException("Missing dropdown toggle");
@@ -36,15 +39,15 @@ internal static class UiSmoke
         Check(picker.IsDropDownOpen, "Dropdown toggle must open the picker");
         picker.IsDropDownOpen = false;
         Capture(window, output, "01-combat.png");
-        window.Editors["Gun"].SelectedItem = PxnDevice.ButtonChoices.First(c => c.Input == new FlightInput("Button", 2));
-        window.Editors["Missile"].SelectedItem = PxnDevice.ButtonChoices.First(c => c.Input == new FlightInput("Button", 1));
+        SelectButton(window.Editors["Gun"], 2);
+        SelectButton(window.Editors["Missile"], 1);
         Check(window.Session.Changes.Count == 2, "Combat controls must update the edit session");
         Capture(window, output, "02-changes.png");
         var saved = window.SaveCurrent(false);
         Check(saved.Changed && File.ReadAllBytes(saved.BackupPath!).SequenceEqual(original), "UI save must create an exact backup");
         Check(window.Session.Changes.Count == 0, "A successful save must clear pending changes");
         window.SelectPage(1);
-        window.Editors["FaceButtonBottom"].SelectedItem = PxnDevice.ButtonChoices.First(c => c.Input == new FlightInput("Button", 3));
+        SelectButton(window.Editors["FaceButtonBottom"], 3);
         Check(window.Session.Changes.Single().Key == "FaceButtonBottom", "Menu editing must be independent from combat bindings");
         Capture(window, output, "03-menu.png");
         window.LoadFile(fixture, true);
@@ -62,7 +65,28 @@ internal static class UiSmoke
         Capture(window, output, "06-backups.png");
         window.SelectPage(0);
         Capture(window, output, "07-compact.png", 1080, 720);
-        File.WriteAllText(Path.Combine(output, "ui-results.txt"), "PASS: startup, real dropdown toggle, combat edit, exact backup, save/reload, independent menu binding, axis reversal, native POV2 swap, five pages, compact layout.\nNo live game configuration was modified.");
+        File.WriteAllText(Path.Combine(output, "ui-results.txt"), "PASS: physical hotspot, multiple inputs per action, non-blocking missing bindings, three UI languages, dropdown toggle, exact backup, menu binding, axis reversal, native POV2 swap, compact layout.\nNo live game configuration was modified.");
+    }
+    internal static void SelectButton(ComboBox picker, int button) => picker.SelectedItem =
+        ((IEnumerable<InputChoice>)picker.ItemsSource).Single(c => c.Input == new FlightInput("Button", button));
+
+    private static void CheckPhysicalEditor(MainWindow window)
+    {
+        var marker = window.VisualHotspots[new FlightInput("Button", 7)];
+        marker.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var picker = window.AddActionPicker!;
+        picker.SelectedValue = "Target";
+        Check(picker.SelectedItem != null, "Target must be selectable on the physical input page");
+        window.AddMappingButton!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(window.Session!.Current["Target"].Inputs.Any(i => i.Button == 7)
+            && window.Session.Current["Target"].Inputs.Count == 2, "Adding a second physical key must retain the original");
+        Check(window.Session.UnboundActions.Count > 0 && window.SaveButton.IsEnabled, "Unbound operations must not block saving");
+        window.LanguagePicker.SelectedIndex = 0;
+        Check(window.AppHeading.Text == "Flight controls" && ActionCatalog.Name("Target") == "Switch target", "English text not applied");
+        window.LanguagePicker.SelectedIndex = 2;
+        Check(window.AppHeading.Text == "フライト操作設定" && ActionCatalog.Name("Target") == "ターゲット切り替え", "Japanese text not applied");
+        window.LanguagePicker.SelectedIndex = 1;
+        Check(window.Session.Changes.Count == 1 && window.AppHeading.Text == "飞行控制配置", "Language switch discarded pending bindings");
     }
     private static void Check(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
     private static T? FindChild<T>(DependencyObject value) where T : DependencyObject
@@ -81,7 +105,7 @@ internal static class UiSmoke
         if (documentation)
         {
             window.PathDisplay.Text = @"%LOCALAPPDATA%\BANDAI NAMCO Entertainment\ACE COMBAT 8\Saved\Config\Windows\FlightStick.ini";
-            window.FileHeading.Text = "示例配置 · PXN 2119 Pro / PXN-F19";
+            window.FileHeading.Text = Lang.T("示例配置", "Example profile", "サンプル設定") + " · PXN 2119 Pro / PXN-F19";
             window.SteamDisplay.Text = @"Steam · ACE COMBAT 8: WINGS OF THEVE · D:\SteamLibrary";
         }
         var root = window.RootView;

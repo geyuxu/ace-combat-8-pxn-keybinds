@@ -32,7 +32,7 @@ dotnet run --project src/AceCombat8.Desktop/AceCombat8.Desktop.csproj -c Release
 dotnet run --project src/AceCombat8.Desktop/AceCombat8.Desktop.csproj -c Release -- --render-docs tests/Fixtures/FlightStick.ini artifacts/documentation
 ```
 
-两种模式均使用应用自己的离屏窗口和配置副本，不采集桌面，不注入系统鼠标键盘输入，不修改真实游戏配置。说明模式显示通用路径与“示例配置”，生成六张 PNG；PNG 保留界面文字的无损清晰度。
+两种模式使用应用自己的离屏窗口和配置副本。说明模式生成中文操作截图及英、日文总览。PNG 保留界面文字的无损清晰度。
 
 ## 保存行为
 

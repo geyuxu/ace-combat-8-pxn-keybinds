@@ -32,7 +32,8 @@ internal sealed partial class RegressionSuite
             Test("unchanged save does not create a backup", UnchangedSave);
             Test("external changes refuse overwrite", ConcurrentChange);
             Test("a running game refuses write", RunningGame);
-            Test("wrong device is refused", () => Throws<FormatException>(() => From(fixture.Replace("0x84711ff", "0x12345678"))));
+            Test("non-PXN device can be selected and saved independently", GenericDevice);
+            Test("multiple inputs preserve sibling and unknown fields through add and remove", MultipleBindings);
             Test("renamed PXN section is selected by VID/PID", () => Check(From(fixture.Replace("[PXN-F19]", "[Flight device]")).SectionName == "Flight device"));
             Test("duplicate PXN sections are refused", () => Throws<FormatException>(() => From(fixture + fixture[fixture.IndexOf("[PXN-F19]", StringComparison.Ordinal)..])));
             Test("duplicate function keys are refused", DuplicateKey);
@@ -173,6 +174,42 @@ internal sealed partial class RegressionSuite
         session.ApplyCombatPreset();
         Check(session.Current["SpecialRight"].HasInputs(new FlightInput("Button", 8)));
         Check(session.ToMarkdown().Contains("菜单键 ≡／跳过剧情"));
+    }
+
+    private void GenericDevice()
+    {
+        string path = NewFile();
+        string head = fixture[..fixture.IndexOf("[PXN-F19]", StringComparison.Ordinal)];
+        string section = fixture[head.Length..].Replace("PXN-F19", "Example HOTAS").Replace("0x84711ff", "0xB10A044F");
+        File.WriteAllText(path, fixture + "\r\n" + section);
+        var original = FlightStickDocument.Load(path);
+        var device = original.Devices.Single(d => d.Name == "Example HOTAS");
+        var session = new EditSession(original.Select(device));
+        session.AddInput("Target", new FlightInput("Button", 27));
+        Check(ControllerInputs.List(session, new(28, 6, 1)).Contains(new FlightInput("Button", 28)));
+        var saved = ConfigStore.Save(session);
+        Check(saved.Document.Device == device && saved.Document.Bindings["Target"].Inputs.Count == 2);
+        Check(File.ReadAllText(path).StartsWith(fixture, StringComparison.Ordinal));
+        var restore = ConfigStore.PrepareRestore(saved.Document, saved.BackupPath!);
+        Check(restore.Current["Target"].Inputs.Count == 1);
+        Check(FlightStickDocument.FromBytes(path, Encoding.UTF8.GetBytes(head + section), device).Device == device);
+    }
+
+    private void MultipleBindings()
+    {
+        InputBinding binding = InputBinding.Parse(JsonSerializer.Serialize(
+            """{"inputSettings":[{"inputType":"Button","buttonIndex":2,"vendor":"first"},{"inputType":"Button","buttonIndex":3,"vendor":"second"}],"future":true}"""));
+        var third = new FlightInput("Button", 7);
+        var added = binding.AddInput(third);
+        Check(added.Inputs.Count == 3 && ReferenceEquals(added.AddInput(third), added));
+        var result = added.RemoveInput(0);
+        var json = JsonNode.Parse(result.Fingerprint)!;
+        Check(result.HasInputs(new FlightInput("Button", 3), third));
+        Check(json["inputSettings"]![0]!["vendor"]!.GetValue<string>() == "second" && json["future"]!.GetValue<bool>());
+        var session = new EditSession(Document());
+        session.RemoveInput("Target", 0);
+        Check(!session.IsBound("Target") && session.UnboundActions.Contains("Target"));
+        Throws<ArgumentException>(() => session.AddInput("Throttle", third));
     }
     private void EncodingRoundtrip(Encoding encoding, string ending)
     {

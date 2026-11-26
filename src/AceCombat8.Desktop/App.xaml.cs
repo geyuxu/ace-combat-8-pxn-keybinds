@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using AceCombat8.Core;
 
 namespace AceCombat8.Desktop;
 
@@ -10,7 +11,7 @@ public partial class App : Application
         base.OnStartup(e);
         DispatcherUnhandledException += (_, args) =>
         {
-            MessageBox.Show(args.Exception.Message, "操作未完成", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(args.Exception.Message, Lang.T("操作未完成", "Operation did not complete", "操作を完了できませんでした"), MessageBoxButton.OK, MessageBoxImage.Error);
             args.Handled = true;
         };
         if (e.Args.Length >= 3 && e.Args[0] is "--smoke-test" or "--render-docs")

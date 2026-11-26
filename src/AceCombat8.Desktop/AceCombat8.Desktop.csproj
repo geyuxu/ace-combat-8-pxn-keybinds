@@ -5,9 +5,9 @@
     <OutputType>WinExe</OutputType>
     <AssemblyName>AceCombat8Keybinds</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.0.1</Version>
-    <Product>皇牌空战8 · PXN 飞行控制配置</Product>
-    <Description>PXN 2119 Pro 专用皇牌空战8键位编辑工具</Description>
+    <Version>1.1.0</Version>
+    <Product>ACE COMBAT 8 Flight Controls</Product>
+    <Description>Visual flight controller binding editor for ACE COMBAT 8</Description>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>

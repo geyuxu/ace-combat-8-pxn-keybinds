@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using AceCombat8.Core;
 using Microsoft.Win32;
+using static AceCombat8.Core.Lang;
 
 namespace AceCombat8.Desktop;
 
@@ -13,11 +14,14 @@ public partial class MainWindow : Window
     internal EditSession? Session { get; private set; }
     private int page;
     private bool testing;
+    private bool settingDevice;
+    private string? steamGame;
     internal readonly Dictionary<string, ComboBox> Editors = new();
     internal CheckBox? AxisReverseForTest;
     public MainWindow()
     {
         InitializeComponent();
+        InitializeLanguage();
         Height = Math.Max(MinHeight, Math.Min(900, SystemParameters.WorkArea.Height - 40));
         Closing += OnClosing;
         RenderPage();
@@ -27,35 +31,69 @@ public partial class MainWindow : Window
         if (args.Length > 0 && File.Exists(args[0])) TryAction(() => LoadFile(args[0]));
         else LocateClick(this, new RoutedEventArgs());
     }
-    internal void LoadFile(string path, bool test = false)
+    internal void LoadFile(string path, bool test = false, DeviceSection? device = null)
     {
-        var document = FlightStickDocument.Load(path);
+        var document = FlightStickDocument.Load(path, device);
         testing = test;
         Session = new(document);
+        ResetInputSelection();
         if (!testing) WindowsServices.Remember(document.Path);
         PathDisplay.Text = document.Path;
-        FileHeading.Text = $"已读取 PXN 2119 Pro  ·  [{document.SectionName}]";
+        UpdateDevicePicker();
         RefreshAll();
-        SetStatus("已读取配置，选择要调整的游戏功能。", "保存时自动备份；生效需要重新启动游戏。");
+        SetLoadedStatus();
+    }
+    private void ResetInputSelection()
+    {
+        selectedInput = null;
+        selectedAction = null;
+        placePoint = false;
+        if (Session != null)
+            capabilities = DirectInputDevices.Read().GetValueOrDefault(Session.Document.Device.Id);
+    }
+    private void UpdateDevicePicker()
+    {
+        var document = Session!.Document;
+        settingDevice = true;
+        DevicePicker.ItemsSource = document.Devices;
+        DevicePicker.SelectedItem = document.Device;
+        DevicePicker.Visibility = document.Devices.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+        settingDevice = false;
+        FileHeading.Text = document.Device.Label;
+        HardwareNote.Text = document.Device.IsPxn
+            ? T("PXN 使用 MODE 0，T 连发保持 OFF。", "PXN: use MODE 0 with turbo OFF.", "PXN は MODE 0、連射 OFF で使用してください。")
+            : capabilities is { } caps
+                ? T($"DirectInput · {caps.Buttons} 键 / {caps.Axes} 轴", $"DirectInput · {caps.Buttons} buttons / {caps.Axes} axes", $"DirectInput · {caps.Buttons} ボタン / {caps.Axes} 軸")
+                : T("使用文件中的设备配置。", "Using the device profile in the file.", "ファイル内の機器設定を使用しています。");
+    }
+    private void DeviceChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (settingDevice || Session == null || DevicePicker.SelectedItem is not DeviceSection device || device == Session.Document.Device) return;
+        if (CanDiscard()) TryAction(() => LoadFile(Session.Document.Path, testing, device));
+        UpdateDevicePicker();
     }
     private void NavigateClick(object sender, RoutedEventArgs e) => SelectPage(int.Parse((string)((Button)sender).Tag));
-    internal void SelectPage(int value) { page = value; RenderPage(); PageScroll.ScrollToTop(); }
+    internal void SelectPage(int value) { page = value; RefreshAll(); PageScroll.ScrollToTop(); }
     private void RefreshAll() { RenderPage(); RefreshChanges(); }
     private void RenderPage()
     {
         Editors.Clear(); AxisReverseForTest = null;
+        inputEditor = null; inputPicker = null; AddActionPicker = null; AddMappingButton = null;
         ContentHost.Children.Clear();
         foreach (var nav in Navigation.Children.OfType<Button>())
             nav.Background = Brush((string)nav.Tag == page.ToString() ? "#24434B" : "#142236");
         if (Session == null)
         {
-            ContentHost.Children.Add(PageTitle("先连接你的飞行控制器", "自动查找会读取 Steam 库，并验证配置中包含 PXN-F19。你也可以手动选择 FlightStick.ini。"));
-            ContentHost.Children.Add(Info("首次使用", "把摇杆与油门连接好，使用 MODE 0。若没有配置文件，请先启动一次游戏，然后退出再查找。"));
+            ContentHost.Children.Add(PageTitle(T("连接飞行控制器", "Connect a flight controller", "フライトコントローラーを接続"),
+                T("自动查找 Steam 游戏配置，也可手动选择 FlightStick.ini。", "Find your Steam game configuration or choose FlightStick.ini.", "Steam の設定を検索するか、FlightStick.ini を選択します。")));
+            ContentHost.Children.Add(Info(T("首次使用", "First setup", "初回設定"),
+                T("连接设备并启动一次游戏，退出后再查找配置。", "Connect the controller, launch the game once, then exit and search for its configuration.", "機器を接続し、ゲームを一度起動・終了してから設定を検索します。")));
             return;
         }
         switch (page)
         {
-            case 0: CombatPage(); break;
+            case 0: PhysicalPage(); break;
+            case 5: CombatPage(); break;
             case 1: MenuPage(); break;
             case 2: AxesPage(); break;
             case 3: HatsPage(); break;
@@ -66,8 +104,14 @@ public partial class MainWindow : Window
     {
         ChangesHost.Children.Clear();
         var changes = Session?.Changes ?? [];
-        ChangesHeading.Text = changes.Count == 0 ? "待保存的更改" : $"待保存 · {changes.Count} 项";
-        if (changes.Count == 0) ChangesHost.Children.Add(Text("当前没有更改。\n修改左侧的按键定义后，这里会显示前后对比。", 12, "#91A5BF"));
+        ChangesHeading.Text = T("操作绑定", "Action bindings", "操作の割り当て");
+        int missing = Session?.UnboundActions.Count ?? 0;
+        ChangesDetail.Text = Session == null ? "" : missing > 0
+            ? T($"⚠ 当前设备有 {missing} 项未绑定，仍可保存。", $"⚠ {missing} actions unbound on this device. You can still save.", $"⚠ 選択中の機器に未割り当てが {missing} 件あります。保存できます。")
+            : T("当前设备的操作均已绑定。", "All actions on this device are bound.", "選択中の機器の操作はすべて割り当て済みです。");
+        ChangesDetail.Foreground = Brush(missing > 0 ? "#F4C986" : "#A2B1C6");
+        if (changes.Count > 0)
+            ChangesHost.Children.Add(Text(T($"待保存 · {changes.Count} 项", $"Pending · {changes.Count} changes", $"未保存 · {changes.Count} 件"), 13, "#65DED1", new Thickness(0, 0, 0, 12)));
         foreach (var change in changes)
         {
             var block = new StackPanel { Margin = new Thickness(0, 0, 0, 15) };
@@ -76,12 +120,13 @@ public partial class MainWindow : Window
             block.Children.Add(Text("→ " + change.After, 12, "#65DED1", new Thickness(0, 4, 0, 0)));
             ChangesHost.Children.Add(block);
         }
+        if (Session != null) DrawActionChips();
         var conflicts = Session?.Conflicts() ?? [];
         WarningsBox.Visibility = conflicts.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        WarningsText.Text = string.Join("\n", conflicts) + "\n确认有意共用后仍可保存。";
+        WarningsText.Text = string.Join("\n", conflicts) + "\n" + T("仍可保存。", "Saving is available.", "保存できます。");
         SaveButton.IsEnabled = changes.Count > 0;
         ReloadButton.IsEnabled = ExportButton.IsEnabled = Session != null;
-        Title = $"{(changes.Count > 0 ? "● " : "")}皇牌空战8 · PXN 键位工具";
+        Title = (changes.Count > 0 ? "● " : "") + T("皇牌空战8 · 键位工具", "ACE COMBAT 8 · Flight controls", "ACE COMBAT 8 · フライト操作設定");
     }
     private void SetStatus(string message, string detail = "") { StatusText.Text = message; StatusDetail.Text = detail; }
     private void TryAction(Action action)
@@ -89,63 +134,69 @@ public partial class MainWindow : Window
         try { action(); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or InvalidOperationException or ArgumentException)
         {
-            SetStatus("操作未完成：" + ex.Message, "原配置或可用备份仍保留；可以重新读取后重试。");
-            MessageBox.Show(this, ex.Message, "操作未完成", MessageBoxButton.OK, MessageBoxImage.Warning);
+            SetStatus(T("操作未完成。", "Operation did not complete.", "操作を完了できませんでした。"), ex.Message);
+            MessageBox.Show(this, ex.Message, T("操作未完成", "Operation did not complete", "操作を完了できませんでした"), MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
     private bool CanDiscard()
     {
         if (Session?.Changes.Count is not > 0) return true;
-        return MessageBox.Show(this, "有尚未保存的键位更改。要放弃这些更改吗？", "未保存的更改", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
+        return MessageBox.Show(this,
+            T("要放弃尚未保存的更改吗？", "Discard unsaved changes?", "未保存の変更を破棄しますか？"),
+            T("未保存的更改", "Unsaved changes", "未保存の変更"), MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
     }
     private void OnClosing(object? sender, CancelEventArgs e) { if (!testing && !CanDiscard()) e.Cancel = true; }
     private void ChooseClick(object sender, RoutedEventArgs e)
     {
         if (!CanDiscard()) return;
-        var dialog = new OpenFileDialog { Title = "选择皇牌空战8的 FlightStick.ini", Filter = "摇杆配置 (FlightStick.ini)|FlightStick.ini|INI 配置 (*.ini)|*.ini", CheckFileExists = true };
+        var dialog = new OpenFileDialog { Title = T("选择 FlightStick.ini", "Open FlightStick.ini", "FlightStick.ini を開く"), Filter = "FlightStick.ini|FlightStick.ini|INI (*.ini)|*.ini", CheckFileExists = true };
         if (dialog.ShowDialog(this) == true) TryAction(() => LoadFile(dialog.FileName));
     }
     private async void LocateClick(object sender, RoutedEventArgs e)
     {
         if (!CanDiscard()) return;
         LocateButton.IsEnabled = false;
-        SetStatus("正在读取 Steam 库并查找当前用户配置…");
+        SetStatus(T("正在查找游戏配置…", "Searching for game configuration…", "ゲーム設定を検索中…"));
         try
         {
             var roots = WindowsServices.SteamRoots().ToArray();
             var result = await Task.Run(() => ConfigDiscovery.Find(roots, Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), WindowsServices.LastPath()));
-            SteamDisplay.Text = result.Games.Count > 0 ? $"Steam 已识别：{result.Games[0].Name}  ·  {result.Games[0].Library}" : "未找到 Steam 安装记录；支持直接读取当前用户配置。";
+            steamGame = result.Games.Count > 0 ? $"{result.Games[0].Name} · {result.Games[0].Library}" : null;
+            UpdateSteamDisplay();
             if (result.Candidates.Count == 1) LoadFile(result.Candidates[0].Path);
             else if (result.Candidates.Count > 1)
             {
                 string? selected = ChooseCandidate(result.Candidates);
                 if (selected != null) LoadFile(selected);
-                else SetStatus("已取消选择，当前配置保持原样。");
+                else SetStatus(T("已取消选择。", "Selection canceled.", "選択をキャンセルしました。"));
             }
-            else SetStatus("没有找到可用配置。", string.Join(" ", result.Notes));
+            else SetStatus(T("没有找到可用配置。", "No editable configuration found.", "編集可能な設定が見つかりません。"), string.Join(" ", result.Notes));
         }
-        catch (Exception ex) { SetStatus("自动查找未完成。", ex.Message + " 可使用“选择文件”。"); }
+        catch (Exception ex) { SetStatus(T("自动查找未完成。", "Automatic search failed.", "自動検索に失敗しました。"), ex.Message); }
         finally { LocateButton.IsEnabled = true; }
     }
-    private void ReloadClick(object sender, RoutedEventArgs e) { if (Session != null && CanDiscard()) TryAction(() => LoadFile(Session.Document.Path)); }
+    private void ReloadClick(object sender, RoutedEventArgs e) { if (Session != null && CanDiscard()) TryAction(() => LoadFile(Session.Document.Path, testing, Session.Document.Device)); }
     private void SaveClick(object sender, RoutedEventArgs e) => TryAction(() => SaveCurrent());
     internal SaveResult SaveCurrent(bool? gameRunning = null)
     {
-        if (Session == null) throw new InvalidOperationException("请先选择配置文件。");
+        if (Session == null) throw new InvalidOperationException(T("请先选择配置文件。", "Choose a configuration first.", "先に設定ファイルを選択してください。"));
         var result = ConfigStore.Save(Session, () => gameRunning ?? WindowsServices.GameRunning());
         Session = new(result.Document);
         RefreshAll();
-        SetStatus(result.Changed ? "键位已保存。重新启动游戏后生效。" : "配置没有变化。", result.BackupPath == null ? "" : "备份：" + System.IO.Path.GetFileName(result.BackupPath));
+        SetStatus(result.Changed
+            ? T("键位已保存，重启游戏后生效。", "Bindings saved. Restart the game to apply them.", "割り当てを保存しました。ゲームを再起動してください。")
+            : T("配置没有变化。", "No changes to save.", "保存する変更はありません。"),
+            result.BackupPath == null ? "" : T("备份 · ", "Backup · ", "バックアップ · ") + System.IO.Path.GetFileName(result.BackupPath));
         return result;
     }
     private void ExportClick(object sender, RoutedEventArgs e)
     {
         if (Session == null) return;
-        var dialog = new SaveFileDialog { Title = "导出可放入 Obsidian 的键位表", FileName = "PXN 2119 Pro 皇牌空战8键位表.md", Filter = "Markdown 笔记 (*.md)|*.md" };
+        var dialog = new SaveFileDialog { Title = T("导出键位表", "Export bindings", "割り当てを出力"), FileName = "Ace Combat 8 bindings.md", Filter = "Markdown (*.md)|*.md" };
         if (dialog.ShowDialog(this) == true) TryAction(() =>
         {
             File.WriteAllText(dialog.FileName, Session.ToMarkdown(), new System.Text.UTF8Encoding(false));
-            SetStatus("键位表已导出。", Session.Changes.Count > 0 ? "导出内容包含当前预览中的更改；这些更改仍需保存到游戏。" : dialog.FileName);
+            SetStatus(T("键位表已导出。", "Bindings exported.", "割り当てを出力しました。"), dialog.FileName);
         });
     }
 }
