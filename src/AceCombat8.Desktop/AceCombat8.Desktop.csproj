@@ -5,7 +5,7 @@
     <OutputType>WinExe</OutputType>
     <AssemblyName>AceCombat8Keybinds</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.1.0</Version>
+    <Version>1.1.1</Version>
     <Product>ACE COMBAT 8 Flight Controls</Product>
     <Description>Visual flight controller binding editor for ACE COMBAT 8</Description>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>

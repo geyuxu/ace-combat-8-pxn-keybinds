@@ -24,10 +24,13 @@ internal static class DocumentationScreenshots
         window.UpdateLayout();
         window.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
         void Capture(string name) => UiSmoke.Capture(window, output, name, documentation: true);
+        window.VisualHotspots[new FlightInput("Button", 3)].RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
         Capture("01-overview.png");
         window.VisualHotspots[new FlightInput("Button", 7)].RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
         window.AddActionPicker!.SelectedValue = "Target";
         window.AddMappingButton!.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+        window.PageScroll.ScrollToVerticalOffset(145);
+        window.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
         Capture("02-review-save.png");
         window.SaveCurrent(false);
         var session = window.Session!;

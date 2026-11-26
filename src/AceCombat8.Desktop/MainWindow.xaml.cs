@@ -107,8 +107,12 @@ public partial class MainWindow : Window
         ChangesHeading.Text = T("操作绑定", "Action bindings", "操作の割り当て");
         int missing = Session?.UnboundActions.Count ?? 0;
         ChangesDetail.Text = Session == null ? "" : missing > 0
-            ? T($"⚠ 当前设备有 {missing} 项未绑定，仍可保存。", $"⚠ {missing} actions unbound on this device. You can still save.", $"⚠ 選択中の機器に未割り当てが {missing} 件あります。保存できます。")
-            : T("当前设备的操作均已绑定。", "All actions on this device are bound.", "選択中の機器の操作はすべて割り当て済みです。");
+            ? T($"⚠ {missing} 项常用操作未绑定，仍可保存。", $"⚠ {missing} common actions are unbound. You can still save.", $"⚠ よく使う操作の未割り当てが {missing} 件あります。保存できます。")
+            : T("常用操作均已绑定。", "All common actions are bound.", "よく使う操作はすべて割り当て済みです。");
+        ActionFilters.Visibility = Session == null ? Visibility.Collapsed : Visibility.Visible;
+        OnlyMissing.Content = T("只看未绑定", "Show unbound only", "未割り当てのみ表示");
+        ShowOptional.Content = T("显示可选项与手柄输入槽", "Show optional and gamepad slots", "オプションとゲームパッド入力を表示");
+        RefreshSelectedBinding();
         ChangesDetail.Foreground = Brush(missing > 0 ? "#F4C986" : "#A2B1C6");
         if (changes.Count > 0)
             ChangesHost.Children.Add(Text(T($"待保存 · {changes.Count} 项", $"Pending · {changes.Count} changes", $"未保存 · {changes.Count} 件"), 13, "#65DED1", new Thickness(0, 0, 0, 12)));

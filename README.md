@@ -2,7 +2,7 @@
 
 [简体中文](docs/user-guide.md) · [日本語](docs/user-guide.ja.md)
 
-A Windows editor for ACE COMBAT 8 flight-stick bindings. Select a physical control on the diagram, then assign the actions you want it to trigger. The action list shows every input assigned to each action and highlights unbound actions.
+A Windows editor for ACE COMBAT 8 flight-stick bindings. Hover over a marker to see its actions, or select it to pin its bindings beside the diagram. The action list shows every input for each common action and highlights gaps. Optional actions and generic gamepad slots are available through a separate filter.
 
 ![Physical controls and action bindings](docs/images/07-overview-en.png)
 

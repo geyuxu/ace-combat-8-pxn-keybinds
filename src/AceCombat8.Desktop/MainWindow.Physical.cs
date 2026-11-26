@@ -13,7 +13,6 @@ public partial class MainWindow
     private FlightInput? selectedInput;
     private string? selectedAction;
     private bool placePoint;
-    private bool onlyMissing;
     private ControllerCapabilities? capabilities;
     private StackPanel? inputEditor;
     private ComboBox? inputPicker;
@@ -65,16 +64,31 @@ public partial class MainWindow
     {
         if (inputEditor == null || Session == null || selectedInput == null) return;
         var input = selectedInput;
-        foreach (var (key, marker) in hotspots)
-            marker.Background = Brush(key == input ? "#246C72" : "#14283F");
+        UpdateHotspots(input);
+        RefreshSelectedBinding();
         inputEditor.Children.Clear();
-        var matches = Session.Current.SelectMany(pair => pair.Value.Inputs.Select((i, n) => (pair.Key, Input: i, Index: n)))
-            .Where(row => row.Input.Type == input.Type && row.Input.Button == input.Button).ToArray();
-        if (matches.Length == 0)
+        var matches = Session.BindingsFor(input);
+        inputEditor.Children.Add(Text(T("当前绑定", "Current bindings", "現在の割り当て"), 12, "#98ACC4", new Thickness(0, 0, 0, 8)));
+        if (matches.Count == 0)
             inputEditor.Children.Add(Text(T("这个输入还没有操作。", "This input has no actions yet.", "この入力には操作が割り当てられていません。"), 12, "#A2B1C6"));
         foreach (var match in matches)
             AddExistingMapping(match.Key, match.Input, match.Index);
         AddMappingControls(input);
+    }
+
+    private void UpdateHotspots(FlightInput selected)
+    {
+        var session = Session!;
+        foreach (var (input, marker) in hotspots)
+        {
+            var matches = session.BindingsFor(input);
+            bool bound = matches.Count > 0;
+            marker.Background = Brush(input == selected ? "#246C72" : bound ? "#214C50" : "#14283F");
+            marker.BorderBrush = Brush(input == selected ? "#BAFDF7" : bound ? "#65DED1" : "#496581");
+            var label = ControllerInputs.Short(input, session.Document.Device.IsPxn);
+            marker.ToolTip = label + "\n" + (bound ? BindingLabels(matches) : T("未绑定", "Unbound", "未割り当て"));
+            System.Windows.Automation.AutomationProperties.SetName(marker, (string)marker.ToolTip);
+        }
     }
 
     private void AddExistingMapping(string key, FlightInput input, int index)
@@ -90,7 +104,7 @@ public partial class MainWindow
         DockPanel.SetDock(button, Dock.Right);
         row.Children.Add(button);
         var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        text.Children.Add(Text(ActionCatalog.Name(key), 13));
+        text.Children.Add(Text($"{ActionCatalog.Context(key)} · {ActionCatalog.Name(key)}", 13));
         string? detail = ActionCatalog.Hold(key);
         if (input.Direction != "Standard" || input.Enable != 0 || input.Disable != 0)
             detail = ControllerInputs.Describe(input, Session!.Document.Device.IsPxn) + " · " + detail;
@@ -102,24 +116,30 @@ public partial class MainWindow
     private void AddMappingControls(FlightInput input)
     {
         var session = Session!;
-        var choices = session.Current.Keys.Where(key => ActionCatalog.CanAssign(key, input))
-            .Select(key => new ActionChoice(key, ActionCatalog.Name(key))).OrderBy(c => c.Label).ToArray();
-        if (choices.Length == 0) return;
+        var choices = session.Current.Keys
+            .Where(key => (ActionCatalog.IsCommon(key) || ShowOptional.IsChecked == true) && ActionCatalog.CanAssign(key, input))
+            .OrderByDescending(ActionCatalog.IsCommon).ThenBy(ActionCatalog.Name)
+            .Select(key => new ActionChoice(key, $"{ActionCatalog.Context(key)} · {ActionCatalog.Name(key)}")).ToList();
+        AddActionPicker = null;
+        AddMappingButton = null;
+        if (choices.Count == 0) return;
+        choices.Insert(0, new("", T("选择要新增的操作…", "Choose an action to add…", "追加する操作を選択…")));
         var row = new DockPanel { Margin = new Thickness(0, 10, 0, 0) };
-        inputEditor!.Children.Add(Text(T("选择要添加的游戏操作", "Choose an action to add", "追加する操作を選択"), 12, "#A2B1C6"));
+        inputEditor!.Children.Add(Text(T("添加其他操作", "Add another action", "操作を追加"), 12, "#A2B1C6", new Thickness(0, 8, 0, 0)));
         var picker = new ComboBox
         {
             ItemsSource = choices, DisplayMemberPath = "Label", SelectedValuePath = "Key",
-            SelectedItem = choices.FirstOrDefault(c => c.Key == selectedAction)
+            SelectedItem = choices.FirstOrDefault(c => c.Key == selectedAction) ?? choices[0]
         };
         System.Windows.Automation.AutomationProperties.SetName(picker, T("选择游戏操作", "Choose a game action", "ゲーム内操作を選択"));
         var reverse = new CheckBox { Content = T("反向", "Reverse", "反転"), Margin = new Thickness(8, 0, 0, 0) };
         var hint = Text("", 11, "#A2B1C6", new Thickness(0, 7, 0, 0));
         var apply = ActionButton(T("添加绑定", "Add binding", "割り当てを追加"), () =>
         {
-            if (picker.SelectedItem is not ActionChoice action) return;
+            if (picker.SelectedItem is not ActionChoice { Key.Length: > 0 } action) return;
             string direction = reverse.IsChecked == true ? "Reverse" : "Standard";
             session.AddInput(action.Key, input with { Direction = direction });
+            selectedAction = null;
             DrawEditor();
             RefreshChanges();
         });
@@ -131,16 +151,20 @@ public partial class MainWindow
         row.Children.Add(picker);
         void Update()
         {
-            selectedAction = (picker.SelectedItem as ActionChoice)?.Key ?? selectedAction;
-            bool canReverse = ActionCatalog.IsAxisInput(input)
-                || picker.SelectedItem is ActionChoice item && ActionCatalog.IsCamera(item.Key);
+            var action = picker.SelectedItem as ActionChoice;
+            selectedAction = action?.Key;
+            bool canReverse = action is { Key.Length: > 0 }
+                && (ActionCatalog.IsAxisInput(input) || ActionCatalog.IsCamera(action.Key));
             reverse.Visibility = canReverse ? Visibility.Visible : Visibility.Collapsed;
             if (!canReverse) reverse.IsChecked = false;
-            apply.IsEnabled = picker.SelectedItem != null;
-            hint.Text = picker.SelectedItem is ActionChoice option ? ActionCatalog.Hold(option.Key) ?? "" : "";
+            apply.IsEnabled = action is { Key.Length: > 0 }
+                && !session.Current[action.Key].Inputs.Contains(input with { Direction = reverse.IsChecked == true ? "Reverse" : "Standard" });
+            hint.Text = action != null ? ActionCatalog.Hold(action.Key) ?? "" : "";
             hint.Visibility = hint.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
         picker.SelectionChanged += (_, _) => Update();
+        reverse.Checked += (_, _) => Update();
+        reverse.Unchecked += (_, _) => Update();
         Update();
         inputEditor!.Children.Add(row);
         inputEditor.Children.Add(hint);
@@ -151,10 +175,13 @@ public partial class MainWindow
     private void SelectInput(FlightInput input)
     {
         selectedInput = input;
-        if (inputPicker?.ItemsSource is IEnumerable<InputChoice> choices)
-            inputPicker.SelectedItem = choices.FirstOrDefault(c => c.Input == input);
+        if (inputPicker?.ItemsSource is IEnumerable<InputChoice> choices &&
+            choices.FirstOrDefault(choice => choice.Input == input) is { } match && !Equals(inputPicker.SelectedItem, match))
+        {
+            inputPicker.SelectedItem = match;
+            return;
+        }
         DrawEditor();
-        inputEditor?.BringIntoView();
     }
 
     private void BuildControllerPicture(StackPanel parent, ControllerPhoto? photo, IReadOnlyList<FlightInput> inputs)
@@ -249,7 +276,7 @@ public partial class MainWindow
         }
         parent.Children.Add(row);
         if (photo == null && Session!.Document.Device.IsPxn)
-            parent.Children.Add(Text(T("PXN 2119 Pro 示意图 · 遮挡的按键用标记引线表示。", "PXN 2119 Pro schematic · Callouts identify controls hidden from this angle.", "PXN 2119 Pro の模式図。見えにくい入力は引き出し線で示します。"), 11, "#8DA2BE"));
+            parent.Children.Add(Text(T("青色表示已绑定，悬停查看操作。", "Teal marks a bound input. Hover to see its actions.", "青緑は割り当て済みです。マウスを重ねると操作を表示します。"), 11, "#8DA2BE"));
     }
 
     private void PlacePhotoPoint(ControllerPhoto photo, Canvas canvas, Point position)

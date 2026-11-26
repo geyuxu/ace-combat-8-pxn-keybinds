@@ -65,13 +65,27 @@ internal static class UiSmoke
         Capture(window, output, "06-backups.png");
         window.SelectPage(0);
         Capture(window, output, "07-compact.png", 1080, 720);
-        File.WriteAllText(Path.Combine(output, "ui-results.txt"), "PASS: physical hotspot, multiple inputs per action, non-blocking missing bindings, three UI languages, dropdown toggle, exact backup, menu binding, axis reversal, native POV2 swap, compact layout.\nNo live game configuration was modified.");
+        File.WriteAllText(Path.Combine(output, "ui-results.txt"), "PASS: selected input summary, hotspot labels, optional slot filter, multiple inputs, non-blocking common gaps, three UI languages, dropdown toggle, exact backup, axes, and hats.\nNo live game configuration was modified.");
     }
     internal static void SelectButton(ComboBox picker, int button) => picker.SelectedItem =
         ((IEnumerable<InputChoice>)picker.ItemsSource).Single(c => c.Input == new FlightInput("Button", button));
 
     private static void CheckPhysicalEditor(MainWindow window)
     {
+        var targetMarker = window.VisualHotspots[new FlightInput("Button", 3)];
+        targetMarker.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(targetMarker.ToolTip is string tooltip && tooltip.Contains(ActionCatalog.Name("Target")), "A bound hotspot must name its action");
+        Check(window.SelectedBindingTitle.Text == ControllerInputs.Short(new FlightInput("Button", 3), true)
+            && window.SelectedBindingActions.Text.Contains(ActionCatalog.Name("Target"))
+            && window.SelectedBindingActions.Text.Contains(ActionCatalog.Name("FaceButtonLeft")), "The selected input must expose both flight and menu mappings");
+        Check(window.ChangesDetail.Text == "常用操作均已绑定。", "Optional slots must not create a missing-actions warning");
+        window.OnlyMissing.IsChecked = true;
+        Check(window.SelectedBindingActions.Text.Contains(ActionCatalog.Name("Target")), "The unbound filter must not hide the selected input summary");
+        Check(!window.ChangesHost.Children.OfType<Border>().Any(chip => Equals(chip.Tag, "LeftShoulder")), "Unused controller slots must be hidden by default");
+        window.ShowOptional.IsChecked = true;
+        Check(window.ChangesHost.Children.OfType<Border>().Any(chip => Equals(chip.Tag, "LeftShoulder")), "Advanced slots must be available on request");
+        window.ShowOptional.IsChecked = false;
+        window.OnlyMissing.IsChecked = false;
         var marker = window.VisualHotspots[new FlightInput("Button", 7)];
         marker.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         var picker = window.AddActionPicker!;
@@ -80,7 +94,12 @@ internal static class UiSmoke
         window.AddMappingButton!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Check(window.Session!.Current["Target"].Inputs.Any(i => i.Button == 7)
             && window.Session.Current["Target"].Inputs.Count == 2, "Adding a second physical key must retain the original");
-        Check(window.Session.UnboundActions.Count > 0 && window.SaveButton.IsEnabled, "Unbound operations must not block saving");
+        var radar = window.Session.Current["Radar"];
+        window.Session.Set("Radar", FlightInput.None);
+        window.RefreshChanges();
+        Check(window.Session.UnboundActions.SequenceEqual(["Radar"]) && window.SaveButton.IsEnabled, "A missing common action must warn without blocking saving");
+        window.Session.Current["Radar"] = radar;
+        window.RefreshChanges();
         window.LanguagePicker.SelectedIndex = 0;
         Check(window.AppHeading.Text == "Flight controls" && ActionCatalog.Name("Target") == "Switch target", "English text not applied");
         window.LanguagePicker.SelectedIndex = 2;

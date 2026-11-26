@@ -4,6 +4,7 @@ using static AceCombat8.Core.Lang;
 namespace AceCombat8.Core;
 
 public sealed record BindingChange(string Key, string Name, string Before, string After);
+public sealed record PhysicalBinding(string Key, FlightInput Input, int Index);
 
 public sealed class EditSession
 {
@@ -23,7 +24,12 @@ public sealed class EditSession
     public bool IsBound(string key) => Current.TryGetValue(key, out var binding)
         && binding.Inputs.Any(input => input.Type != "None");
 
-    public IReadOnlyList<string> UnboundActions => Current.Keys.Where(key => !IsBound(key)).ToList();
+    public IReadOnlyList<string> UnboundActions => Current.Keys.Where(key => ActionCatalog.IsCommon(key) && !IsBound(key)).ToList();
+
+    public IReadOnlyList<PhysicalBinding> BindingsFor(FlightInput control) => Current
+        .SelectMany(pair => pair.Value.Inputs.Select((input, index) => new PhysicalBinding(pair.Key, input, index)))
+        .Where(binding => binding.Input.Type != "None" && binding.Input.Type == control.Type && binding.Input.Button == control.Button)
+        .ToList();
 
     public void AddInput(string key, FlightInput input)
     {

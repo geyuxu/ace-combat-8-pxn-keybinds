@@ -2,6 +2,14 @@ namespace AceCombat8.Core;
 
 public static class ActionCatalog
 {
+    private static readonly HashSet<string> CommonActions = PxnDevice.All.Select(action => action.Key)
+        .Concat(EditSession.HatKeys).Where(key => key != "Gear").ToHashSet(StringComparer.Ordinal);
+    private static readonly HashSet<string> ControllerSlots = new(StringComparer.Ordinal)
+    {
+        "LeftShoulder", "RightShoulder", "LeftTrigger", "RightTrigger", "LeftThumbstick", "RightThumbstick",
+        "SpecialLeft", "TouchPad", "Platform"
+    };
+
     private static readonly Dictionary<string, (string English, string Japanese)> Labels = new()
     {
         ["Gun"] = ("Gun", "機銃"), ["Missile"] = ("Fire missile / special weapon", "ミサイル・特殊兵装を発射"),
@@ -42,6 +50,15 @@ public static class ActionCatalog
         if (key.StartsWith("ExtraButton_", StringComparison.Ordinal))
             return Lang.T("附加键 ", "Extra button ", "追加ボタン ") + key["ExtraButton_".Length..];
         return key;
+    }
+
+    public static bool IsCommon(string key) => CommonActions.Contains(key);
+    public static bool IsControllerSlot(string key) => ControllerSlots.Contains(key) || key.StartsWith("ExtraButton_", StringComparison.Ordinal);
+    public static string Context(string key)
+    {
+        if (IsControllerSlot(key)) return Lang.T("手柄输入槽", "Gamepad slot", "ゲームパッド入力");
+        if (!IsCommon(key)) return Lang.T("可选项目", "Optional", "オプション");
+        return IsMenu(key) ? Lang.T("菜单", "Menu", "メニュー") : Lang.T("飞行", "Flight", "飛行");
     }
 
     public static string? Hold(string key) => key switch
